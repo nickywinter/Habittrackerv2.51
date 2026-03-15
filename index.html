@@ -1,3 +1,65 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Habit Tracker</title><link rel="manifest" href="manifest.json"><meta name="apple-mobile-web-app-capable" content="yes"><style>
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;background:#f4f4f4;color:#111}header{padding:16px;font-size:20px;font-weight:700;text-align:center;background:#fff;border-bottom:1px solid #ddd;position:sticky;top:0;z-index:5}.container{padding:16px;margin-bottom:84px}.card{background:#fff;padding:12px;border-radius:12px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}.score-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.metric{text-align:center;background:#fff;padding:12px;border-radius:12px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.04)}.metric small{display:block;font-weight:500;color:#666;margin-top:4px}.notice{background:#fff7d6;border:1px solid #f0df8a;padding:12px;border-radius:12px;margin-bottom:12px}.habit{display:flex;justify-content:space-between;align-items:center;padding:14px;background:#fff;margin-bottom:10px;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);cursor:pointer}input[type="number"],textarea,select,input[type="file"],input[type="text"]{width:100%;padding:11px 12px;margin-top:8px;border-radius:10px;border:1px solid #ccc;font-size:16px;box-sizing:border-box;background:#fff}textarea{min-height:90px;resize:vertical}.tabs{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #ddd;z-index:10}.tab{flex:1;padding:14px 6px;text-align:center;font-size:13px;cursor:pointer}.grid-wrap{background:#fff;border-radius:12px;padding:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;box-shadow:0 1px 2px rgba(0,0,0,.04)}table{border-collapse:separate;border-spacing:6px;min-width:max-content}th{font-size:12px;color:#666;white-space:nowrap}.habit-name{position:sticky;left:0;background:#fff;z-index:2;padding-right:8px;text-align:left}.cell{width:36px;height:36px;border-radius:10px;text-align:center;vertical-align:middle;font-weight:700;cursor:pointer;user-select:none}.done{background:#34c759;color:#fff}.empty{background:#ebebef;color:transparent}.today{outline:3px solid #0a84ff}.btn{margin-top:8px;padding:11px 12px;width:100%;border-radius:10px;border:none;background:#0a84ff;color:#fff;font-weight:700;font-size:15px}.secondary{background:#e9eefb;color:#0a84ff}.archive{background:#ff3b30}.restore{background:#34c759}.row-actions{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:8px}.list-line{padding:10px 0;border-bottom:1px solid #eee}.muted{color:#666;font-size:14px}
-</style></head><body><header>Habit Tracker</header><div class="container" id="content"></div><div class="tabs"><div class="tab" onclick="showToday()">Today</div><div class="tab" onclick="showMonth()">Month</div><div class="tab" onclick="showMoments()">Moments</div><div class="tab" onclick="showWeight()">Weight</div><div class="tab" onclick="showSettings()">Settings</div></div><script src="app.js"></script></body></html>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Habit Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;background:#f4f4f4;color:#111}
+header{padding:16px;font-size:20px;font-weight:700;text-align:center;background:#fff;border-bottom:1px solid #ddd;position:sticky;top:0;z-index:5}
+.container{padding:16px;margin-bottom:84px}
+.card{background:#fff;padding:12px;border-radius:12px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.score-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.metric{text-align:center;background:#fff;padding:12px;border-radius:12px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.metric small{display:block;font-weight:500;color:#666;margin-top:4px}
+.notice{background:#fff7d6;border:1px solid #f0df8a;padding:12px;border-radius:12px;margin-bottom:12px}
+.habit{display:flex;justify-content:space-between;align-items:center;padding:14px;background:#fff;margin-bottom:10px;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);cursor:pointer}
+input[type="number"],textarea,select,input[type="file"],input[type="text"]{width:100%;padding:11px 12px;margin-top:8px;border-radius:10px;border:1px solid #ccc;font-size:16px;box-sizing:border-box;background:#fff}
+textarea{min-height:90px;resize:vertical}
+.tabs{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #ddd;z-index:10}
+.tab{flex:1;padding:14px 6px;text-align:center;font-size:13px;cursor:pointer}
+
+.dot{
+width:20px;
+height:20px;
+border-radius:50%;
+border:2px solid #D1D1D6;
+}
+
+.dot.done{
+background:#007AFF;
+border-color:#007AFF;
+}
+
+.row-actions{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+.list-line{padding:10px 0;border-bottom:1px solid #eee}
+.muted{color:#666;font-size:14px}
+.btn{margin-top:8px;padding:11px 12px;width:100%;border-radius:10px;border:none;background:#0a84ff;color:#fff;font-weight:700;font-size:15px}
+.secondary{background:#e9eefb;color:#0a84ff}
+.archive{background:#ff3b30}
+.restore{background:#34c759}
+</style>
+</head>
+
+<body>
+
+<header>Habit Tracker</header>
+
+<div class="container" id="content"></div>
+
+<div class="tabs">
+<div class="tab" onclick="showToday()">Today</div>
+<div class="tab" onclick="showProgress()">Progress</div>
+<div class="tab" onclick="showLife()">Life</div>
+<div class="tab" onclick="showSettings()">Settings</div>
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
