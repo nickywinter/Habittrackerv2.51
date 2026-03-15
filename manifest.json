@@ -1,6 +1,6 @@
 {
-  "name": "Habit Tracker",
-  "short_name": "Habits",
+  "name": "Daymark",
+  "short_name": "Daymark",
   "display": "standalone",
   "start_url": ".",
   "background_color": "#f4f4f4",
