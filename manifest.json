@@ -1,6 +1,7 @@
 {
   "name": "Daymark",
   "short_name": "Daymark",
+  "description": "Mark your day. Then move on.",
   "display": "standalone",
   "start_url": ".",
   "background_color": "#f4f4f4",

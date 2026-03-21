@@ -1,69 +1,533 @@
 
-const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const DEFAULT_HABITS=[{name:"Exercise",archived:false,type:"personal"},{name:"Walk",archived:false,type:"personal"},{name:"Read",archived:false,type:"personal"},{name:"Podcast",archived:false,type:"personal"},{name:"Sleep 7+",archived:false,type:"personal"},{name:"Cold Shower",archived:false,type:"personal"},{name:"No Alcohol",archived:false,type:"personal"},{name:"Plan Day",archived:false,type:"work"}];
-const DEFAULT_LOG_DATE=new Date(Date.now()-86400000);
-const CURRENT_MONTH_KEY=monthKey(DEFAULT_LOG_DATE);
-let selectedMonthKey=CURRENT_MONTH_KEY, selectedDay=getSafeDefaultDay(selectedMonthKey), currentTab="today", store=JSON.parse(localStorage.getItem("habitV251"))||{}, meta=loadMeta(), toastState=null;
-function loadMeta(){const raw=JSON.parse(localStorage.getItem("habitMetaV35"))||JSON.parse(localStorage.getItem("habitMetaV34"))||JSON.parse(localStorage.getItem("habitMetaV33"))||{};return {baselineWeight:raw.baselineWeight||"",goals:Array.isArray(raw.goals)?raw.goals:[],weightUnit:raw.weightUnit||"kg"}}
-function monthKey(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
-function monthDate(key){const [y,m]=key.split("-").map(Number);return new Date(y,m-1,1)}
-function daysInMonth(key){const d=monthDate(key);return new Date(d.getFullYear(),d.getMonth()+1,0).getDate()}
-function formatDate(d){return d.getDate()+" "+MONTHS[d.getMonth()]+" "+d.getFullYear()}
-function formatMonth(key){const d=monthDate(key);return MONTHS[d.getMonth()]+" "+d.getFullYear()}
-function escapeHtml(t){return String(t).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}
-function clone(o){return JSON.parse(JSON.stringify(o))}
-function previousMonthKey(key){const d=monthDate(key);d.setMonth(d.getMonth()-1);return monthKey(d)}
-function monthKeys(){return Object.keys(store).sort().reverse()}
-function getDateForDay(key,day){const d=monthDate(key);d.setDate(day);return d}
-function getSafeDefaultDay(key){return key===CURRENT_MONTH_KEY?Math.min(DEFAULT_LOG_DATE.getDate(),daysInMonth(key)):1}
-function ensureMonth(key){if(store[key]){if(!store[key].habits) store[key].habits=clone(DEFAULT_HABITS);if(!store[key].days) store[key].days={};if(!store[key].weight) store[key].weight={};if(!store[key].moments) store[key].moments={};store[key].habits.forEach(h=>{if(!h.type) h.type="personal";if(h.archived===undefined) h.archived=false;});return;}const prevKey=previousMonthKey(key);const habits=clone(store[prevKey]?.habits||DEFAULT_HABITS);habits.forEach(h=>{if(!h.type) h.type="personal";if(h.archived===undefined) h.archived=false;});store[key]={habits,days:{},weight:{},moments:{}}}
-ensureMonth(CURRENT_MONTH_KEY);
-function saveState(){localStorage.setItem("habitV251",JSON.stringify(store));localStorage.setItem("habitMetaV35",JSON.stringify(meta))}
-function monthData(key=selectedMonthKey){ensureMonth(key);return store[key]}
-function setActiveTab(tabName){currentTab=tabName;document.querySelectorAll(".tab").forEach(tab=>tab.classList.toggle("active",tab.dataset.tab===tabName))}
-function showToast(message,undoFn){toastState={message,undoFn};const old=document.getElementById("toast");if(old) old.remove();const div=document.createElement("div");div.id="toast";div.className="toast";div.innerHTML=`<span>${escapeHtml(message)}</span><button type="button" onclick="undoToast()">Undo</button>`;document.body.appendChild(div);setTimeout(()=>{const live=document.getElementById("toast");if(live&&toastState&&toastState.message===message){toastState=null;live.remove();}},4000)}
-function clearToast(){toastState=null;const old=document.getElementById("toast");if(old) old.remove()}
-function undoToast(){if(!toastState) return;const fn=toastState.undoFn;clearToast();if(fn) fn()}
-function activeForDate(h,dateObj){const weekend=(dateObj.getDay()===0||dateObj.getDay()===6);if(h.type==="work"&&weekend) return false;return true}
-function currentViewedDate(){return getDateForDay(selectedMonthKey,selectedDay)}
-function toggleHabit(name,day){const month=monthData();month.days[day]=month.days[day]||[];const before=clone(month.days[day]);month.days[day]=month.days[day].includes(name)?month.days[day].filter(x=>x!==name):[...month.days[day],name];saveState();showToday();showToast("Habit updated",()=>{month.days[day]=before;saveState();showToday();})}
-function setWeight(v,day){const month=monthData();month.weight[day]=v;saveState()}
-function setMoment(v,day){const month=monthData();month.moments[day]=v;saveState()}
-function monthSelector(selectedKey=selectedMonthKey){
-  const keys=monthKeys();
-  return `<select onchange="changeMonth(this.value)">${keys.map(key=>`<option value="${key}" ${key===selectedKey?'selected':''}>${formatMonth(key)}</option>`).join("")}</select>`;
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DEFAULT_HABITS = [
+  {name:"Exercise",archived:false,type:"personal"},
+  {name:"Walk",archived:false,type:"personal"},
+  {name:"Read",archived:false,type:"personal"},
+  {name:"Podcast",archived:false,type:"personal"},
+  {name:"Sleep 7+",archived:false,type:"personal"},
+  {name:"Cold Shower",archived:false,type:"personal"},
+  {name:"No Alcohol",archived:false,type:"personal"},
+  {name:"Plan Day",archived:false,type:"work"}
+];
+
+// Default log date is yesterday — intentional, so you log the day just completed
+const DEFAULT_LOG_DATE = new Date(Date.now() - 86400000);
+const CURRENT_MONTH_KEY = monthKey(DEFAULT_LOG_DATE);
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+let selectedMonthKey = CURRENT_MONTH_KEY;
+let selectedDay = getSafeDefaultDay(selectedMonthKey);
+let currentTab = "today";
+let toastState = null;
+
+// Progress tab has its own independent month selection so it does not
+// interfere with the Log tab's month browsing.
+let progressMonthKey = CURRENT_MONTH_KEY;
+
+let store = loadStore();
+let meta = loadMeta();
+
+function loadStore() {
+  try { return JSON.parse(localStorage.getItem("habitV251")) || {}; }
+  catch (e) { return {}; }
 }
-function daySelectorCard(){const maxDay=selectedMonthKey===CURRENT_MONTH_KEY?Math.min(DEFAULT_LOG_DATE.getDate(),daysInMonth(selectedMonthKey)):daysInMonth(selectedMonthKey);const options=Array.from({length:maxDay},(_,i)=>i+1).reverse().map(day=>`<option value="${day}" ${day===selectedDay?'selected':''}>${formatDate(getDateForDay(selectedMonthKey,day))}</option>`).join("");return `<div class="card"><label><strong>Day</strong></label><select onchange="changeDay(this.value)">${options}</select><div class="muted">You can edit previous days here.</div></div>`}
-function maxLoggedDay(key){return key===CURRENT_MONTH_KEY?Math.min(DEFAULT_LOG_DATE.getDate(),daysInMonth(key)):daysInMonth(key)}
-function score(key=selectedMonthKey){const month=monthData(key);let total=0,done=0;for(let day=1;day<=maxLoggedDay(key);day++){const dateObj=getDateForDay(key,day);month.habits.filter(h=>!h.archived&&activeForDate(h,dateObj)).forEach(h=>{total++;if(month.days[day]?.includes(h.name)) done++;});}return total?Math.round(done/total*100):0}
-function dayComplete(key,day){const month=monthData(key);const dateObj=getDateForDay(key,day);const habits=month.habits.filter(h=>!h.archived&&activeForDate(h,dateObj));return habits.length>0&&habits.every(h=>month.days[day]?.includes(h.name))}
-function previousDayReference(key,day){if(day>1) return {key,day:day-1};const prevKey=previousMonthKey(key);if(!store[prevKey]) return null;return {key:prevKey,day:maxLoggedDay(prevKey)}}
-function currentStreak(key=selectedMonthKey){let ref={key,day:maxLoggedDay(key)},streak=0;while(ref&&ref.day>=1){if(dayComplete(ref.key,ref.day)){streak++;ref=previousDayReference(ref.key,ref.day);}else break;}return streak}
-function bestStreak(){const keys=monthKeys().sort();let best=0,current=0;keys.forEach(key=>{for(let day=1;day<=maxLoggedDay(key);day++){if(dayComplete(key,day)){current++;if(current>best) best=current;}else current=0;}});return best}
-function summaryCards(){return `<div class="score-grid"><div class="metric">${score()}%<small>Month Score</small></div><div class="metric">${currentStreak()}<small>Current Streak</small></div><div class="metric">${bestStreak()}<small>Best Streak</small></div></div>`}
-function fullDayCompleteCard(){return dayComplete(selectedMonthKey,selectedDay)?`<div class="card done-day"><strong>Nice work — full day complete.</strong><div class="muted">All active habits are done for ${formatDate(currentViewedDate())}.</div></div>`:""}
-function showToday(){setActiveTab("today");clearToast();const month=monthData(),day=selectedDay,dayDate=currentViewedDate();let html=daySelectorCard()+fullDayCompleteCard();const personal=month.habits.filter(h=>!h.archived&&h.type!=="work"&&activeForDate(h,dayDate));const work=month.habits.filter(h=>!h.archived&&h.type==="work"&&activeForDate(h,dayDate));if(personal.length){html+=`<div class="section-title">PERSONAL</div>`;personal.forEach(h=>{const done=month.days[day]?.includes(h.name);html+=`<div class="habit" onclick='toggleHabit(${JSON.stringify(h.name)},${day})'><div class="dot ${done?"done":""}"></div><div>${escapeHtml(h.name)}</div></div>`;});}if(work.length){html+=`<div class="section-title">WORK</div>`;work.forEach(h=>{const done=month.days[day]?.includes(h.name);html+=`<div class="habit" onclick='toggleHabit(${JSON.stringify(h.name)},${day})'><div class="dot ${done?"done":""}"></div><div>${escapeHtml(h.name)}</div></div>`;});}html+=`<div class="card"><h3>Weight</h3><input type="number" step="0.1" value="${month.weight[day]||""}" onchange="setWeight(this.value,${day})"><div class="unit-label">Unit: ${escapeHtml(meta.weightUnit)}</div><h3>Memorable Moment</h3><textarea onchange="setMoment(this.value,${day})">${month.moments[day]||""}</textarea></div>`;document.getElementById("content").innerHTML=html}
-function weightSummary(){const month=monthData();const entries=Object.keys(month.weight).sort((a,b)=>Number(a)-Number(b)).filter(key=>String(month.weight[key]).trim()!=="");const current=entries.length?Number(month.weight[entries[entries.length-1]]):null;const baseline=meta.baselineWeight!==""?Number(meta.baselineWeight):null;let change=null;if(current!==null&&baseline!==null&&!Number.isNaN(current)&&!Number.isNaN(baseline)) change=(current-baseline).toFixed(1);return {entries,current,baseline,change}}
-function weightCards(){const {current,baseline,change}=weightSummary();return `<div class="card"><h3>Weight</h3><div class="weight-grid"><div class="metric">${current!==null&&!Number.isNaN(current)?current.toFixed(1):"—"}<small>Current (${escapeHtml(meta.weightUnit)})</small></div><div class="metric">${baseline!==null&&!Number.isNaN(baseline)?baseline.toFixed(1):"—"}<small>Baseline</small></div><div class="metric">${change!==null?(change>0?"+":"")+change:"—"}<small>Change</small></div></div></div>`}
-function weightChart(){const month=monthData();const entries=Object.keys(month.weight).sort((a,b)=>Number(a)-Number(b)).filter(key=>String(month.weight[key]).trim()!=="");if(entries.length<2) return `<div class="card"><h3>Weight Trend</h3><div class="muted">Add at least 2 weight entries to see a trend.</div></div>`;const values=entries.map(key=>Number(month.weight[key])).filter(v=>!Number.isNaN(v));if(values.length<2) return `<div class="card"><h3>Weight Trend</h3><div class="muted">Not enough valid weight entries yet.</div></div>`;const min=Math.min(...values),max=Math.max(...values),range=max-min||1,width=320,height=180,pad=18;const points=values.map((v,i)=>`${pad+(i*(width-pad*2))/Math.max(values.length-1,1)},${height-pad-((v-min)/range)*(height-pad*2)}`).join(" ");const circles=values.map((v,i)=>`<circle cx="${pad+(i*(width-pad*2))/Math.max(values.length-1,1)}" cy="${height-pad-((v-min)/range)*(height-pad*2)}" r="3"></circle>`).join("");return `<div class="card"><h3>Weight Trend</h3><svg class="chart" viewBox="0 0 ${width} ${height}"><line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="#ddd" stroke-width="1"></line><polyline fill="none" stroke="#007AFF" stroke-width="3" points="${points}"></polyline><g fill="#007AFF">${circles}</g></svg><div class="muted">Latest ${values.length} entries this month.</div></div>`}
-function goalCard(){if(!meta.goals.length) return `<div class="card"><h3>Goals</h3><div class="muted">No goals added yet.</div></div>`;return `<div class="card"><h3>Goals</h3>${meta.goals.map(g=>`<div class="goal-row"><div>${escapeHtml(g.text)}<div class="goal-chip">${g.progress||""}</div></div><div>${g.done?"✅":"•"}</div></div>`).join("")}</div>`}
-function monthGrid(){const month=monthData();let html=`<div class="card"><div class="inline-row"><div><h3>Month View</h3></div><div><label><strong>Month</strong></label>${monthSelector(selectedMonthKey)}</div></div><div class="muted">Scroll sideways to see the whole month.</div></div><div class="grid-wrap"><table><tr><th class="habit-name"></th>`;for(let day=1;day<=daysInMonth(selectedMonthKey);day++) html+=`<th>${day}</th>`;html+=`</tr>`;month.habits.filter(h=>!h.archived).forEach((habit,index)=>{html+=`<tr class="${index%2===1?'alt-row':''}"><th class="habit-name">${escapeHtml(habit.name)}</th>`;for(let day=1;day<=daysInMonth(selectedMonthKey);day++){const done=month.days[day]?.includes(habit.name);html+=`<td class="cell ${done?'done-cell':'empty-cell'} ${selectedMonthKey===CURRENT_MONTH_KEY&&day===DEFAULT_LOG_DATE.getDate()?'today-cell':''}">${done?'•':''}</td>`;}html+=`</tr>`;});return html+`</table></div>`}
-function showProgress(){setActiveTab("progress");clearToast();document.getElementById("content").innerHTML=summaryCards()+goalCard()+weightCards()+weightChart()+monthGrid()}
-function showLife(){setActiveTab("life");clearToast();const month=monthData();let html=`<div class="card"><div class="inline-row"><div><h3>Memorable Moments</h3></div><div><label><strong>Month</strong></label>${monthSelector(selectedMonthKey)}</div></div>`,has=false;Object.keys(month.moments).sort((a,b)=>Number(b)-Number(a)).forEach(day=>{if(!String(month.moments[day]).trim()) return;has=true;html+=`<div class="list-line" onclick="editLifeMoment(${day})" style="cursor:pointer;"><strong>${formatDate(getDateForDay(selectedMonthKey,Number(day)))}</strong><br>${escapeHtml(month.moments[day])}<div class="muted">Tap to edit</div></div>`;});if(!has) html+=`<div class="muted">No memorable moments yet.</div>`;document.getElementById("content").innerHTML=html+`</div>`}
-function editLifeMoment(day){selectedDay=Number(day);showToday()}
-function toggleHabitType(index){const month=monthData();month.habits[index].type=month.habits[index].type==="work"?"personal":"work";saveState();showSettings()}
-function archiveHabit(index){const month=monthData();month.habits[index].archived=true;saveState();showSettings()}
-function restoreHabit(index){const month=monthData();month.habits[index].archived=false;saveState();showSettings()}
-function moveHabit(index,direction){const month=monthData();const newIndex=index+direction;if(newIndex<0||newIndex>=month.habits.length) return;const temp=month.habits[index];month.habits[index]=month.habits[newIndex];month.habits[newIndex]=temp;saveState();showSettings()}
-function addHabit(){const name=document.getElementById("newHabit").value.trim();const type=document.getElementById("habitType").value;const month=monthData();if(!name){alert("Please enter a habit name.");return;}if(name.length>40){alert("Habit names must be 40 characters or fewer.");return;}if(month.habits.some(h=>h.name.toLowerCase()===name.toLowerCase())){alert("That habit name already exists.");return;}month.habits.push({name,archived:false,type});saveState();showSettings()}
-function exportData(){const payload={store,meta};const uri="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(payload));const a=document.createElement("a");a.href=uri;a.download="habit-backup.json";a.click()}
-function importData(event){const file=event.target.files[0];event.target.value="";if(!file) return;if(!confirm("Import backup? This will overwrite your current data.")) return;const reader=new FileReader();reader.onload=function(){try{const parsed=JSON.parse(reader.result);if(parsed.store){store=parsed.store;meta=parsed.meta||meta;}else{store=parsed;}Object.keys(store).forEach(key=>ensureMonth(key));ensureMonth(CURRENT_MONTH_KEY);if(!meta||typeof meta!=="object") meta={baselineWeight:"",goals:[],weightUnit:"kg"};if(!Array.isArray(meta.goals)) meta.goals=[];if(!meta.weightUnit) meta.weightUnit="kg";selectedMonthKey=CURRENT_MONTH_KEY;selectedDay=getSafeDefaultDay(selectedMonthKey);saveState();alert("Backup imported successfully");showToday();}catch(e){alert("Import failed. Please choose a valid backup file.");}};reader.readAsText(file)}
-function setBaselineWeight(value){meta.baselineWeight=value;saveState()}
-function setWeightUnit(value){meta.weightUnit=value;saveState()}
-function saveGoals(){const lines=document.getElementById("goalsText").value.split("\\n").map(x=>x.trim()).filter(Boolean);const progressLines=document.getElementById("goalsProgress").value.split("\\n").map(x=>x.trim());meta.goals=lines.map((line,index)=>({text:line,progress:progressLines[index]||"",done:meta.goals[index]?.done||false}));saveState();showSettings()}
-function markGoalDone(index){meta.goals[index].done=!meta.goals[index].done;saveState();showSettings()}
-async function checkStorageUsage(){if(!navigator.storage||!navigator.storage.estimate){alert("Storage estimate is not available on this browser.");return;}const est=await navigator.storage.estimate();const usage=est.usage||0,quota=est.quota||0,percent=quota?Math.round((usage/quota)*100):0;alert(`Using ${percent}% of available storage.${percent>=80?" Warning: you are getting close to the limit.":""}`)}
-function showSettings(){setActiveTab("settings");clearToast();const month=monthData();let html=`<div class="card"><h3>Habits</h3>`;month.habits.forEach((habit,index)=>{if(habit.archived) return;html+=`<div class="row-actions"><div>${escapeHtml(habit.name)}</div><button class="small-btn" onclick="moveHabit(${index},-1)">↑</button><button class="small-btn" onclick="moveHabit(${index},1)">↓</button><button class="small-btn" onclick="toggleHabitType(${index})">${habit.type==="work"?"To Personal":"To Work"}</button><button class="small-btn small-danger" onclick="archiveHabit(${index})">Archive</button></div>`;});const archived=month.habits.map((habit,index)=>({habit,index})).filter(item=>item.habit.archived);if(archived.length){html+=`<h3>Archived Habits</h3>`;archived.forEach(({habit,index})=>{html+=`<div class="row-actions"><div>${escapeHtml(habit.name)}</div><span></span><span></span><span></span><button class="small-btn small-green" onclick="restoreHabit(${index})">Restore</button></div>`;});}html+=`<h3>Add Habit</h3><input id="newHabit" type="text" maxlength="40" placeholder="New habit"><select id="habitType"><option value="personal">Personal</option><option value="work">Work</option></select><button class="btn" onclick="addHabit()">Add Habit</button><h3>Goals</h3><div class="muted">One goal per line. Add optional tracking notes in the second box.</div><textarea id="goalsText" placeholder="Read 20 books&#10;Build 2 apps&#10;Run half marathon">${meta.goals.map(g=>g.text).join("\\n")}</textarea><textarea id="goalsProgress" placeholder="6 / 20&#10;1 / 2&#10;Training weekly">${meta.goals.map(g=>g.progress||"").join("\\n")}</textarea><button class="btn" onclick="saveGoals()">Save Goals</button>${meta.goals.length?meta.goals.map((g,index)=>`<div class="goal-row"><div>${escapeHtml(g.text)}</div><button class="btn secondary" onclick="markGoalDone(${index})">${g.done?"Mark Active":"Mark Done"}</button></div>`).join(""):""}<h3>Weight Settings</h3><div class="inline-row"><div><label><strong>Baseline</strong></label><input type="number" step="0.1" value="${meta.baselineWeight||""}" onchange="setBaselineWeight(this.value)" placeholder="e.g. 80.0"></div><div><label><strong>Unit</strong></label><select onchange="setWeightUnit(this.value)"><option value="kg" ${meta.weightUnit==="kg"?"selected":""}>kg</option><option value="lbs" ${meta.weightUnit==="lbs"?"selected":""}>lbs</option></select></div></div><h3>Backup</h3><button class="btn secondary" onclick="exportData()">Export Backup</button><input type="file" onchange="importData(event)"><button class="btn secondary" onclick="checkStorageUsage()">Check Local Storage Usage</button><div class="muted">Version 3.51 – Daymark</div></div>`;document.getElementById("content").innerHTML=html}
-function changeMonth(key){selectedMonthKey=key;ensureMonth(key);selectedDay=getSafeDefaultDay(key);if(currentTab==="today") showToday();else if(currentTab==="life") showLife();else if(currentTab==="settings") showSettings();else showProgress()}
-function changeDay(value){selectedDay=Number(value);showToday()}
-saveState();showToday();
+
+function loadMeta() {
+  try {
+    const raw =
+      JSON.parse(localStorage.getItem("habitMetaV35")) ||
+      JSON.parse(localStorage.getItem("habitMetaV34")) ||
+      JSON.parse(localStorage.getItem("habitMetaV33")) || {};
+    return {
+      baselineWeight: raw.baselineWeight || "",
+      goals: Array.isArray(raw.goals) ? raw.goals : [],
+      weightUnit: raw.weightUnit || "kg"
+    };
+  } catch (e) { return {baselineWeight: "", goals: [], weightUnit: "kg"}; }
+}
+
+// ─── Date Helpers ─────────────────────────────────────────────────────────────
+
+function monthKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
+function monthDate(key) { const [y,m] = key.split("-").map(Number); return new Date(y, m-1, 1); }
+function daysInMonth(key) { const d = monthDate(key); return new Date(d.getFullYear(), d.getMonth()+1, 0).getDate(); }
+function formatDate(d) { return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear(); }
+function formatMonth(key) { const d = monthDate(key); return MONTHS[d.getMonth()] + " " + d.getFullYear(); }
+function previousMonthKey(key) { const d = monthDate(key); d.setMonth(d.getMonth()-1); return monthKey(d); }
+function getDateForDay(key, day) { const d = monthDate(key); d.setDate(day); return d; }
+function getSafeDefaultDay(key) { return key === CURRENT_MONTH_KEY ? Math.min(DEFAULT_LOG_DATE.getDate(), daysInMonth(key)) : 1; }
+function maxLoggedDay(key) { return key === CURRENT_MONTH_KEY ? Math.min(DEFAULT_LOG_DATE.getDate(), daysInMonth(key)) : daysInMonth(key); }
+function currentViewedDate() { return getDateForDay(selectedMonthKey, selectedDay); }
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+function escapeHtml(t) { return String(t).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+function monthKeys() { return Object.keys(store).sort().reverse(); }
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
+
+function saveState() {
+  try {
+    localStorage.setItem("habitV251", JSON.stringify(store));
+    localStorage.setItem("habitMetaV35", JSON.stringify(meta));
+  } catch (e) {
+    showToast("Storage full — export a backup to free up space.", null);
+  }
+}
+
+// ─── Month Data ───────────────────────────────────────────────────────────────
+
+function ensureMonth(key) {
+  if (store[key]) {
+    if (!store[key].habits) store[key].habits = clone(DEFAULT_HABITS);
+    if (!store[key].days) store[key].days = {};
+    if (!store[key].weight) store[key].weight = {};
+    if (!store[key].moments) store[key].moments = {};
+    store[key].habits.forEach(h => {
+      if (!h.type) h.type = "personal";
+      if (h.archived === undefined) h.archived = false;
+    });
+    return;
+  }
+  const prevKey = previousMonthKey(key);
+  const habits = clone(store[prevKey]?.habits || DEFAULT_HABITS);
+  habits.forEach(h => {
+    if (!h.type) h.type = "personal";
+    if (h.archived === undefined) h.archived = false;
+  });
+  store[key] = {habits, days: {}, weight: {}, moments: {}};
+}
+
+ensureMonth(CURRENT_MONTH_KEY);
+
+function monthData(key = selectedMonthKey) { ensureMonth(key); return store[key]; }
+
+// ─── Tab & Toast ──────────────────────────────────────────────────────────────
+
+function setActiveTab(tabName) {
+  currentTab = tabName;
+  document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.tab === tabName));
+}
+
+function showToast(message, undoFn) {
+  toastState = {message, undoFn};
+  const old = document.getElementById("toast");
+  if (old) old.remove();
+  const div = document.createElement("div");
+  div.id = "toast";
+  div.className = "toast";
+  div.innerHTML = undoFn
+    ? `<span>${escapeHtml(message)}</span><button type="button" onclick="undoToast()">Undo</button>`
+    : `<span>${escapeHtml(message)}</span>`;
+  document.body.appendChild(div);
+  setTimeout(() => {
+    const live = document.getElementById("toast");
+    if (live && toastState && toastState.message === message) { toastState = null; live.remove(); }
+  }, 4000);
+}
+
+function clearToast() { toastState = null; const old = document.getElementById("toast"); if (old) old.remove(); }
+function undoToast() { if (!toastState) return; const fn = toastState.undoFn; clearToast(); if (fn) fn(); }
+
+// ─── Habit Logic ──────────────────────────────────────────────────────────────
+
+function activeForDate(h, dateObj) {
+  const weekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
+  if (h.type === "work" && weekend) return false;
+  return true;
+}
+
+function toggleHabit(name, day) {
+  const month = monthData();
+  month.days[day] = month.days[day] || [];
+  const before = clone(month.days[day]);
+  month.days[day] = month.days[day].includes(name)
+    ? month.days[day].filter(x => x !== name)
+    : [...month.days[day], name];
+  saveState();
+  if (navigator.vibrate) navigator.vibrate(30);
+  showToday();
+  showToast("Habit updated", () => { month.days[day] = before; saveState(); showToday(); });
+}
+
+function setWeight(v, day) { const month = monthData(); month.weight[day] = v; saveState(); }
+function setMoment(v, day) { const month = monthData(); month.moments[day] = v; saveState(); }
+
+// ─── Scoring & Streaks ────────────────────────────────────────────────────────
+
+function score(key = selectedMonthKey) {
+  const month = monthData(key);
+  let total = 0, done = 0;
+  for (let day = 1; day <= maxLoggedDay(key); day++) {
+    const dateObj = getDateForDay(key, day);
+    month.habits.filter(h => !h.archived && activeForDate(h, dateObj)).forEach(h => {
+      total++;
+      if (month.days[day]?.includes(h.name)) done++;
+    });
+  }
+  return total ? Math.round(done / total * 100) : 0;
+}
+
+function dayComplete(key, day) {
+  const month = monthData(key);
+  const dateObj = getDateForDay(key, day);
+  const habits = month.habits.filter(h => !h.archived && activeForDate(h, dateObj));
+  return habits.length > 0 && habits.every(h => month.days[day]?.includes(h.name));
+}
+
+function previousDayReference(key, day) {
+  if (day > 1) return {key, day: day-1};
+  const prevKey = previousMonthKey(key);
+  if (!store[prevKey]) return null;
+  return {key: prevKey, day: maxLoggedDay(prevKey)};
+}
+
+function currentStreak() {
+  let ref = {key: CURRENT_MONTH_KEY, day: maxLoggedDay(CURRENT_MONTH_KEY)}, streak = 0;
+  while (ref && ref.day >= 1) {
+    if (dayComplete(ref.key, ref.day)) { streak++; ref = previousDayReference(ref.key, ref.day); }
+    else break;
+  }
+  return streak;
+}
+
+function bestStreak() {
+  const keys = monthKeys().sort();
+  let best = 0, current = 0;
+  keys.forEach(key => {
+    for (let day = 1; day <= maxLoggedDay(key); day++) {
+      if (dayComplete(key, day)) { current++; if (current > best) best = current; }
+      else current = 0;
+    }
+  });
+  return best;
+}
+
+// ─── Shared UI Fragments ──────────────────────────────────────────────────────
+
+function monthSelector(selectedKey, onchangeFn) {
+  const keys = monthKeys();
+  return `<select onchange="${onchangeFn}(this.value)">${
+    keys.map(key => `<option value="${key}" ${key === selectedKey ? "selected" : ""}>${formatMonth(key)}</option>`).join("")
+  }</select>`;
+}
+
+// ─── Today Tab ────────────────────────────────────────────────────────────────
+
+function daySelectorCard() {
+  const maxDay = selectedMonthKey === CURRENT_MONTH_KEY
+    ? Math.min(DEFAULT_LOG_DATE.getDate(), daysInMonth(selectedMonthKey))
+    : daysInMonth(selectedMonthKey);
+  const options = Array.from({length: maxDay}, (_,i) => i+1).reverse()
+    .map(day => `<option value="${day}" ${day === selectedDay ? "selected" : ""}>${formatDate(getDateForDay(selectedMonthKey, day))}</option>`)
+    .join("");
+  return `<div class="card"><label><strong>Day</strong></label><select onchange="changeDay(this.value)">${options}</select><div class="muted">You can edit previous days here.</div></div>`;
+}
+
+function fullDayCompleteCard() {
+  return dayComplete(selectedMonthKey, selectedDay)
+    ? `<div class="card done-day"><strong>Nice work — full day complete.</strong><div class="muted">All active habits are done for ${formatDate(currentViewedDate())}.</div></div>`
+    : "";
+}
+
+function showToday() {
+  setActiveTab("today");
+  clearToast();
+  const month = monthData();
+  const day = selectedDay;
+  const dayDate = currentViewedDate();
+  let html = daySelectorCard() + fullDayCompleteCard();
+
+  const personal = month.habits.filter(h => !h.archived && h.type !== "work" && activeForDate(h, dayDate));
+  const work = month.habits.filter(h => !h.archived && h.type === "work" && activeForDate(h, dayDate));
+
+  if (personal.length) {
+    html += `<div class="section-title">PERSONAL</div>`;
+    personal.forEach(h => {
+      const done = month.days[day]?.includes(h.name);
+      html += `<div class="habit" onclick='toggleHabit(${JSON.stringify(h.name)},${day})'><div class="dot ${done ? "done" : ""}"></div><div>${escapeHtml(h.name)}</div></div>`;
+    });
+  }
+  if (work.length) {
+    html += `<div class="section-title">WORK</div>`;
+    work.forEach(h => {
+      const done = month.days[day]?.includes(h.name);
+      html += `<div class="habit" onclick='toggleHabit(${JSON.stringify(h.name)},${day})'><div class="dot ${done ? "done" : ""}"></div><div>${escapeHtml(h.name)}</div></div>`;
+    });
+  }
+
+  html += `<div class="card"><h3>Weight</h3><input type="number" step="0.1" value="${month.weight[day] || ""}" onchange="setWeight(this.value,${day})"><div class="unit-label">Unit: ${escapeHtml(meta.weightUnit)}</div><h3>Memorable Moment</h3><textarea onchange="setMoment(this.value,${day})">${month.moments[day] || ""}</textarea></div>`;
+  document.getElementById("content").innerHTML = html;
+}
+
+// ─── Progress Tab ─────────────────────────────────────────────────────────────
+
+// BUG FIX: Progress tab uses its own `progressMonthKey`, fully independent of
+// `selectedMonthKey` used by Log/Life/Settings. Grid data and all stats now always
+// reflect the month shown in the Progress dropdown, regardless of where you've been
+// browsing in other tabs.
+
+function changeProgressMonth(key) {
+  progressMonthKey = key;
+  ensureMonth(key);
+  showProgress();
+}
+
+function summaryCards() {
+  const streakVal = currentStreak();
+  const streakAtRisk = streakVal > 0 && !dayComplete(CURRENT_MONTH_KEY, maxLoggedDay(CURRENT_MONTH_KEY));
+  return `<div class="score-grid">
+    <div class="metric">${score(progressMonthKey)}%<small>Month Score</small></div>
+    <div class="metric" style="${streakAtRisk ? "color:#ff9500" : ""}">${streakVal}<small>Current Streak${streakAtRisk ? " ⚠️" : ""}</small></div>
+    <div class="metric">${bestStreak()}<small>Best Streak</small></div>
+  </div>`;
+}
+
+function goalCard() {
+  if (!meta.goals.length) return `<div class="card"><h3>Goals</h3><div class="muted">No goals added yet.</div></div>`;
+  return `<div class="card"><h3>Goals</h3>${
+    meta.goals.map(g => `<div class="goal-row"><div>${escapeHtml(g.text)}<div class="goal-chip">${escapeHtml(g.progress || "")}</div></div><div>${g.done ? "✅" : "•"}</div></div>`).join("")
+  }</div>`;
+}
+
+function weightSummary() {
+  const month = monthData(progressMonthKey);
+  const entries = Object.keys(month.weight).sort((a,b) => Number(a)-Number(b)).filter(key => String(month.weight[key]).trim() !== "");
+  const current = entries.length ? Number(month.weight[entries[entries.length-1]]) : null;
+  const baseline = meta.baselineWeight !== "" ? Number(meta.baselineWeight) : null;
+  let change = null;
+  if (current !== null && baseline !== null && !Number.isNaN(current) && !Number.isNaN(baseline)) change = (current - baseline).toFixed(1);
+  return {entries, current, baseline, change};
+}
+
+function weightCards() {
+  const {current, baseline, change} = weightSummary();
+  return `<div class="card"><h3>Weight</h3><div class="weight-grid">
+    <div class="metric">${current !== null && !Number.isNaN(current) ? current.toFixed(1) : "—"}<small>Current (${escapeHtml(meta.weightUnit)})</small></div>
+    <div class="metric">${baseline !== null && !Number.isNaN(baseline) ? baseline.toFixed(1) : "—"}<small>Baseline</small></div>
+    <div class="metric">${change !== null ? (change > 0 ? "+" : "") + change : "—"}<small>Change</small></div>
+  </div></div>`;
+}
+
+function weightChart() {
+  const month = monthData(progressMonthKey);
+  const entries = Object.keys(month.weight).sort((a,b) => Number(a)-Number(b)).filter(key => String(month.weight[key]).trim() !== "");
+  if (entries.length < 2) return `<div class="card"><h3>Weight Trend</h3><div class="muted">Add at least 2 weight entries to see a trend.</div></div>`;
+  const values = entries.map(key => Number(month.weight[key])).filter(v => !Number.isNaN(v));
+  if (values.length < 2) return `<div class="card"><h3>Weight Trend</h3><div class="muted">Not enough valid weight entries yet.</div></div>`;
+  // BUG FIX: Use 100% viewBox width so chart scales to any screen size
+  const vw = 400, vh = 180, pad = 18;
+  const min = Math.min(...values), max = Math.max(...values), range = max-min || 1;
+  const xStep = (vw - pad*2) / Math.max(values.length-1, 1);
+  const points = values.map((v,i) => `${pad + i*xStep},${vh-pad-((v-min)/range)*(vh-pad*2)}`).join(" ");
+  const circles = values.map((v,i) => `<circle cx="${pad + i*xStep}" cy="${vh-pad-((v-min)/range)*(vh-pad*2)}" r="3"></circle>`).join("");
+  return `<div class="card"><h3>Weight Trend</h3>
+    <svg class="chart" viewBox="0 0 ${vw} ${vh}" preserveAspectRatio="none">
+      <line x1="${pad}" y1="${vh-pad}" x2="${vw-pad}" y2="${vh-pad}" stroke="#ddd" stroke-width="1"></line>
+      <polyline fill="none" stroke="#007AFF" stroke-width="3" points="${points}"></polyline>
+      <g fill="#007AFF">${circles}</g>
+    </svg>
+    <div class="muted">Latest ${values.length} entries — ${formatMonth(progressMonthKey)}.</div>
+  </div>`;
+}
+
+function monthGrid() {
+  // BUG FIX: Use progressMonthKey (not selectedMonthKey) so the grid shows data
+  // for whatever month its own dropdown controls, fully decoupled from the Log tab.
+  const month = monthData(progressMonthKey);
+  let html = `<div class="card"><div class="inline-row"><div><h3>Month View</h3></div><div><label><strong>Month</strong></label>${monthSelector(progressMonthKey, "changeProgressMonth")}</div></div><div class="muted">Scroll sideways to see the whole month. Tap a cell to jump to that day in Log.</div></div><div class="grid-wrap"><table><tr><th class="habit-name"></th>`;
+  for (let day = 1; day <= daysInMonth(progressMonthKey); day++) html += `<th>${day}</th>`;
+  html += `</tr>`;
+  month.habits.filter(h => !h.archived).forEach((habit, index) => {
+    html += `<tr class="${index % 2 === 1 ? "alt-row" : ""}"><th class="habit-name">${escapeHtml(habit.name)}</th>`;
+    for (let day = 1; day <= daysInMonth(progressMonthKey); day++) {
+      const done = month.days[day]?.includes(habit.name);
+      const isToday = progressMonthKey === CURRENT_MONTH_KEY && day === DEFAULT_LOG_DATE.getDate();
+      html += `<td class="cell ${done ? "done-cell" : "empty-cell"} ${isToday ? "today-cell" : ""}" onclick="jumpToDay('${progressMonthKey}',${day})" title="${formatDate(getDateForDay(progressMonthKey, day))}">${done ? "•" : ""}</td>`;
+    }
+    html += `</tr>`;
+  });
+  return html + `</table></div>`;
+}
+
+function jumpToDay(key, day) {
+  selectedMonthKey = key;
+  selectedDay = day;
+  showToday();
+}
+
+function showProgress() {
+  setActiveTab("progress");
+  clearToast();
+  document.getElementById("content").innerHTML = summaryCards() + goalCard() + weightCards() + weightChart() + monthGrid();
+}
+
+// ─── Life Tab ─────────────────────────────────────────────────────────────────
+
+function showLife() {
+  setActiveTab("life");
+  clearToast();
+  const month = monthData(selectedMonthKey);
+  let html = `<div class="card"><div class="inline-row"><div><h3>Memorable Moments</h3></div><div><label><strong>Month</strong></label>${monthSelector(selectedMonthKey, "changeMonth")}</div></div>`;
+  let has = false;
+  Object.keys(month.moments).sort((a,b) => Number(b)-Number(a)).forEach(day => {
+    if (!String(month.moments[day]).trim()) return;
+    has = true;
+    html += `<div class="list-line" onclick="editLifeMoment(${day})" style="cursor:pointer;"><strong>${formatDate(getDateForDay(selectedMonthKey, Number(day)))}</strong><br>${escapeHtml(month.moments[day])}<div class="muted">Tap to edit</div></div>`;
+  });
+  if (!has) html += `<div class="muted">No memorable moments yet.</div>`;
+  document.getElementById("content").innerHTML = html + `</div>`;
+}
+
+function editLifeMoment(day) { selectedDay = Number(day); showToday(); }
+
+// ─── Settings Tab ─────────────────────────────────────────────────────────────
+
+function toggleHabitType(index) {
+  const month = monthData();
+  month.habits[index].type = month.habits[index].type === "work" ? "personal" : "work";
+  saveState(); showSettings();
+}
+
+function archiveHabit(index) {
+  const month = monthData();
+  const name = month.habits[index].name;
+  const before = clone(month.habits[index]);
+  month.habits[index].archived = true;
+  saveState(); showSettings();
+  showToast(`"${name}" archived`, () => { month.habits[index] = before; saveState(); showSettings(); });
+}
+
+function restoreHabit(index) { const month = monthData(); month.habits[index].archived = false; saveState(); showSettings(); }
+
+function moveHabit(index, direction) {
+  const month = monthData();
+  const newIndex = index + direction;
+  if (newIndex < 0 || newIndex >= month.habits.length) return;
+  const temp = month.habits[index]; month.habits[index] = month.habits[newIndex]; month.habits[newIndex] = temp;
+  saveState(); showSettings();
+}
+
+function addHabit() {
+  const name = document.getElementById("newHabit").value.trim();
+  const type = document.getElementById("habitType").value;
+  const month = monthData();
+  if (!name) { alert("Please enter a habit name."); return; }
+  if (name.length > 40) { alert("Habit names must be 40 characters or fewer."); return; }
+  if (month.habits.some(h => h.name.toLowerCase() === name.toLowerCase())) { alert("That habit name already exists."); return; }
+  month.habits.push({name, archived: false, type});
+  saveState(); showSettings();
+}
+
+function exportData() {
+  const payload = {store, meta};
+  const uri = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload));
+  const a = document.createElement("a");
+  a.href = uri; a.download = "daymark-backup.json"; a.click();
+}
+
+function importData(event) {
+  const file = event.target.files[0]; event.target.value = "";
+  if (!file) return;
+  if (!confirm("Import backup? This will overwrite your current data.")) return;
+  const reader = new FileReader();
+  reader.onload = function () {
+    try {
+      const parsed = JSON.parse(reader.result);
+      if (parsed.store) { store = parsed.store; meta = parsed.meta || meta; } else { store = parsed; }
+      Object.keys(store).forEach(key => ensureMonth(key));
+      ensureMonth(CURRENT_MONTH_KEY);
+      if (!meta || typeof meta !== "object") meta = {baselineWeight: "", goals: [], weightUnit: "kg"};
+      if (!Array.isArray(meta.goals)) meta.goals = [];
+      if (!meta.weightUnit) meta.weightUnit = "kg";
+      selectedMonthKey = CURRENT_MONTH_KEY;
+      progressMonthKey = CURRENT_MONTH_KEY;
+      selectedDay = getSafeDefaultDay(selectedMonthKey);
+      saveState(); alert("Backup imported successfully"); showToday();
+    } catch (e) { alert("Import failed. Please choose a valid backup file."); }
+  };
+  reader.readAsText(file);
+}
+
+function setBaselineWeight(value) { meta.baselineWeight = value; saveState(); }
+function setWeightUnit(value) { meta.weightUnit = value; saveState(); }
+
+function saveGoals() {
+  const lines = document.getElementById("goalsText").value.split("\n").map(x => x.trim()).filter(Boolean);
+  const progressLines = document.getElementById("goalsProgress").value.split("\n").map(x => x.trim());
+  meta.goals = lines.map((line, index) => ({text: line, progress: progressLines[index] || "", done: meta.goals[index]?.done || false}));
+  saveState(); showSettings();
+}
+
+function markGoalDone(index) { meta.goals[index].done = !meta.goals[index].done; saveState(); showSettings(); }
+
+async function checkStorageUsage() {
+  if (!navigator.storage || !navigator.storage.estimate) { alert("Storage estimate is not available on this browser."); return; }
+  const est = await navigator.storage.estimate();
+  const usage = est.usage || 0, quota = est.quota || 0, percent = quota ? Math.round((usage/quota)*100) : 0;
+  alert(`Using ${percent}% of available storage.${percent >= 80 ? " Warning: you are getting close to the limit." : ""}`);
+}
+
+function showSettings() {
+  setActiveTab("settings");
+  clearToast();
+  const month = monthData();
+  let html = `<div class="card"><h3>Habits</h3>`;
+  month.habits.forEach((habit, index) => {
+    if (habit.archived) return;
+    html += `<div class="row-actions"><div>${escapeHtml(habit.name)}</div><button class="small-btn" onclick="moveHabit(${index},-1)">↑</button><button class="small-btn" onclick="moveHabit(${index},1)">↓</button><button class="small-btn" onclick="toggleHabitType(${index})">${habit.type === "work" ? "To Personal" : "To Work"}</button><button class="small-btn small-danger" onclick="archiveHabit(${index})">Archive</button></div>`;
+  });
+  const archived = month.habits.map((habit,index) => ({habit,index})).filter(item => item.habit.archived);
+  if (archived.length) {
+    html += `<h3>Archived Habits</h3>`;
+    archived.forEach(({habit,index}) => {
+      html += `<div class="row-actions"><div>${escapeHtml(habit.name)}</div><span></span><span></span><span></span><button class="small-btn small-green" onclick="restoreHabit(${index})">Restore</button></div>`;
+    });
+  }
+  html += `<h3>Add Habit</h3>
+    <input id="newHabit" type="text" maxlength="40" placeholder="New habit">
+    <select id="habitType"><option value="personal">Personal</option><option value="work">Work</option></select>
+    <button class="btn" onclick="addHabit()">Add Habit</button>
+    <h3>Goals</h3>
+    <div class="muted">One goal per line. Add optional tracking notes in the second box.</div>
+    <textarea id="goalsText" placeholder="Read 20 books&#10;Build 2 apps&#10;Run half marathon">${meta.goals.map(g => g.text).join("\n")}</textarea>
+    <textarea id="goalsProgress" placeholder="6 / 20&#10;1 / 2&#10;Training weekly">${meta.goals.map(g => g.progress || "").join("\n")}</textarea>
+    <button class="btn" onclick="saveGoals()">Save Goals</button>
+    ${meta.goals.length ? meta.goals.map((g,index) => `<div class="goal-row"><div>${escapeHtml(g.text)}</div><button class="btn secondary" onclick="markGoalDone(${index})">${g.done ? "Mark Active" : "Mark Done"}</button></div>`).join("") : ""}
+    <h3>Weight Settings</h3>
+    <div class="inline-row">
+      <div><label><strong>Baseline</strong></label><input type="number" step="0.1" value="${meta.baselineWeight || ""}" onchange="setBaselineWeight(this.value)" placeholder="e.g. 80.0"></div>
+      <div><label><strong>Unit</strong></label><select onchange="setWeightUnit(this.value)"><option value="kg" ${meta.weightUnit === "kg" ? "selected" : ""}>kg</option><option value="lbs" ${meta.weightUnit === "lbs" ? "selected" : ""}>lbs</option></select></div>
+    </div>
+    <h3>Backup</h3>
+    <button class="btn secondary" onclick="exportData()">Export Backup</button>
+    <input type="file" onchange="importData(event)">
+    <button class="btn secondary" onclick="checkStorageUsage()">Check Local Storage Usage</button>
+    <div class="muted">Version 3.52</div>
+  </div>`;
+  document.getElementById("content").innerHTML = html;
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+
+function changeMonth(key) {
+  selectedMonthKey = key;
+  ensureMonth(key);
+  selectedDay = getSafeDefaultDay(key);
+  if (currentTab === "today") showToday();
+  else if (currentTab === "life") showLife();
+  else if (currentTab === "settings") showSettings();
+  else showProgress();
+}
+
+function changeDay(value) { selectedDay = Number(value); showToday(); }
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+saveState();
+showToday();
