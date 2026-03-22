@@ -123,6 +123,7 @@ function renderLog() {
   </div>`;
 
   document.getElementById("content").innerHTML = html;
+  maybeShowFirstTip();
 }
 
 function logPrevDay() {
@@ -585,9 +586,16 @@ function renderWeightSection() {
 
 function renderBackupSection() {
   return `<div class="card"><h3>Backup & Data</h3>
-    <button class="btn secondary" onclick="exportJSON()">Export JSON Backup</button>
+    <div class="auto-backup-status">
+      <div class="auto-backup-icon">📦</div>
+      <div class="auto-backup-info">
+        <div class="auto-backup-title">Automatic weekly backup</div>
+        <div class="auto-backup-sub">${autoBackupStatus()}</div>
+      </div>
+    </div>
+    <button class="btn secondary" onclick="exportJSON()" style="margin-top:12px">Export JSON Backup now</button>
     <button class="btn secondary" onclick="exportCSV()" style="margin-top:8px">Export CSV</button>
-    <div class="muted" style="margin-top:4px;margin-bottom:8px">Import backup (replaces all data)</div>
+    <div class="muted" style="margin-top:8px;margin-bottom:8px">Import backup (replaces all data)</div>
     <input type="file" accept=".json" onchange="importJSON(this.files[0]);this.value=''">
     <button class="btn secondary" onclick="checkStorageUsage()" style="margin-top:12px">Check Storage Usage</button>
     <div class="muted" style="margin-top:12px">Daymark v${APP_VERSION}</div>
@@ -760,33 +768,180 @@ function submitAddGoal() {
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
-function renderOnboarding() {
-  document.getElementById("content").innerHTML = `
-    <div class="card onboarding">
-      <div class="onboarding-logo">◆</div>
-      <h2>Welcome to Daymark</h2>
-      <p class="muted">Mark your day. Then move on.</p>
-      <p>Daymark is a private habit tracker and life journal. Your data lives only on this device — no account, no cloud, no ads.</p>
-      <h3>Choose a starting point</h3>
-      <button class="btn" onclick="startWithDefaults()">Use default habits</button>
-      <button class="btn secondary" onclick="startBlank()" style="margin-top:8px">Start blank</button>
-    </div>`;
-  document.querySelectorAll(".tab").forEach(t=>t.style.display="none");
+// Step 1: Welcome + install prompt
+// Step 2: How it works
+// Step 3: Choose starting point
+
+function renderOnboarding(step) {
+  step = step || 1;
+  document.querySelectorAll(".tab").forEach(t => t.style.display = "none");
+
+  // Detect if already installed as PWA (no browser chrome)
+  const isPWA = window.navigator.standalone === true
+    || window.matchMedia("(display-mode: standalone)").matches;
+
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isAndroid = /android/i.test(navigator.userAgent);
+
+  let html = "";
+
+  if (step === 1) {
+    // Install prompt — skip if already a PWA
+    if (isPWA) {
+      renderOnboarding(2);
+      return;
+    }
+    const installInstructions = isIOS
+      ? `<div class="ob-install-steps">
+           <div class="ob-install-step"><span class="ob-step-num">1</span>Tap the <strong>Share button</strong> <span class="ob-icon">⬆</span> at the bottom of Safari</div>
+           <div class="ob-install-step"><span class="ob-step-num">2</span>Scroll down and tap <strong>Add to Home Screen</strong></div>
+           <div class="ob-install-step"><span class="ob-step-num">3</span>Tap <strong>Add</strong> in the top right</div>
+           <div class="ob-install-step"><span class="ob-step-num">4</span>Open Daymark from your home screen</div>
+         </div>
+         <div class="ob-note">⚠️ Must use Safari — Chrome and Firefox on iPhone don't support this</div>`
+      : isAndroid
+      ? `<div class="ob-install-steps">
+           <div class="ob-install-step"><span class="ob-step-num">1</span>Tap the <strong>three dots</strong> menu in Chrome</div>
+           <div class="ob-install-step"><span class="ob-step-num">2</span>Tap <strong>Add to Home screen</strong></div>
+           <div class="ob-install-step"><span class="ob-step-num">3</span>Tap <strong>Add</strong> when prompted</div>
+           <div class="ob-install-step"><span class="ob-step-num">4</span>Open Daymark from your home screen</div>
+         </div>`
+      : `<div class="ob-note">On mobile, add this to your home screen for the best experience. On desktop you can continue in the browser.</div>`;
+
+    html = `
+      <div class="onboarding">
+        <div class="ob-logo">◆</div>
+        <h2>Welcome to Daymark</h2>
+        <p class="ob-tagline">Mark your day. Then move on.</p>
+        <div class="ob-install-card">
+          <div class="ob-install-title">📱 Install for the best experience</div>
+          <p class="ob-install-desc">Adding to your home screen keeps your data safe and makes Daymark feel like a native app — full screen, offline, no browser bar.</p>
+          ${installInstructions}
+        </div>
+        <button class="btn" onclick="renderOnboarding(2)" style="margin-top:16px">I've added it to my home screen →</button>
+        <button class="btn secondary" onclick="renderOnboarding(2)" style="margin-top:8px">Skip for now</button>
+      </div>`;
+
+  } else if (step === 2) {
+    // How it works
+    html = `
+      <div class="onboarding">
+        <div class="ob-logo">◆</div>
+        <h2>How Daymark works</h2>
+        <p class="ob-tagline">Three things, done daily.</p>
+        <div class="ob-steps">
+          <div class="ob-how-step">
+            <div class="ob-how-icon" style="background:#007AFF20;color:#007AFF">◆</div>
+            <div class="ob-how-text">
+              <strong>Log your habits</strong>
+              <span>Tap each habit to mark it done. Takes 10 seconds.</span>
+            </div>
+          </div>
+          <div class="ob-how-step">
+            <div class="ob-how-icon" style="background:#34c75920;color:#34c759">📊</div>
+            <div class="ob-how-text">
+              <strong>Track your progress</strong>
+              <span>See your monthly score, streaks, and yearly heatmap build over time.</span>
+            </div>
+          </div>
+          <div class="ob-how-step">
+            <div class="ob-how-icon" style="background:#ff950020;color:#ff9500">📖</div>
+            <div class="ob-how-text">
+              <strong>Remember your life</strong>
+              <span>Write one line about your day. A year from now you'll be glad you did.</span>
+            </div>
+          </div>
+        </div>
+        <div class="ob-privacy">
+          🔒 Everything stays on your device. No account, no cloud, no ads — ever.
+        </div>
+        <button class="btn" onclick="renderOnboarding(3)" style="margin-top:16px">Get started →</button>
+      </div>`;
+
+  } else if (step === 3) {
+    // Choose starting point
+    html = `
+      <div class="onboarding">
+        <div class="ob-logo">◆</div>
+        <h2>Choose a starting point</h2>
+        <p class="ob-tagline">You can change everything later in Settings.</p>
+        <div class="ob-choice-cards">
+          <div class="ob-choice-card" onclick="startWithDefaults()">
+            <div class="ob-choice-icon">✦</div>
+            <div class="ob-choice-title">Use default habits</div>
+            <div class="ob-choice-desc">Start with a set of common habits — Exercise, Read, Sleep 7+, and more. Edit them to suit you.</div>
+          </div>
+          <div class="ob-choice-card" onclick="startBlank()">
+            <div class="ob-choice-icon">○</div>
+            <div class="ob-choice-title">Start blank</div>
+            <div class="ob-choice-desc">Build your habit list from scratch. You'll go straight to Settings to add your first habit.</div>
+          </div>
+          <div class="ob-choice-card" onclick="triggerImport()">
+            <div class="ob-choice-icon">↑</div>
+            <div class="ob-choice-title">Import a backup</div>
+            <div class="ob-choice-desc">Have a backup from a previous device? Import it to restore all your data.</div>
+          </div>
+        </div>
+        <input type="file" id="ob-import-input" accept=".json" style="display:none" onchange="handleObImport(this.files[0])">
+      </div>`;
+  }
+
+  document.getElementById("content").innerHTML = html;
+}
+
+function triggerImport() {
+  document.getElementById("ob-import-input")?.click();
+}
+
+function handleObImport(file) {
+  if (!file) return;
+  // Show tabs before import so renderLog works after
+  document.querySelectorAll(".tab").forEach(t => t.style.display = "");
+  importJSON(file);
 }
 
 function startWithDefaults() {
-  // meta already has default habits and categories
   saveAll();
-  document.querySelectorAll(".tab").forEach(t=>t.style.display="");
+  document.querySelectorAll(".tab").forEach(t => t.style.display = "");
+  // Mark that we should show the first-use tip
+  localStorage.setItem("daymark_show_tip", "1");
   showTab("log");
 }
 
 function startBlank() {
   meta.habits = [];
   saveAll();
-  document.querySelectorAll(".tab").forEach(t=>t.style.display="");
+  document.querySelectorAll(".tab").forEach(t => t.style.display = "");
+  localStorage.setItem("daymark_show_tip", "1");
   showTab("settings");
-  showToast("Add your first habit below ↓", null);
+  showToast("Add your first habit in Settings ↓", null);
+}
+
+// ─── First-use tip ────────────────────────────────────────────────────────────
+
+function maybeShowFirstTip() {
+  if (!localStorage.getItem("daymark_show_tip")) return;
+  // Only show once
+  localStorage.removeItem("daymark_show_tip");
+  setTimeout(() => {
+    const old = document.getElementById("first-tip");
+    if (old) return;
+    const tip = document.createElement("div");
+    tip.id = "first-tip";
+    tip.className = "first-tip";
+    tip.innerHTML = `
+      <div class="first-tip-inner">
+        <div class="first-tip-title">👆 Tap any habit to mark it done</div>
+        <div class="first-tip-body">Log each day, then check Progress to see your streaks build. Write a Memorable Moment at the bottom to capture your day.</div>
+        <button class="first-tip-btn" onclick="dismissFirstTip()">Got it</button>
+      </div>`;
+    document.body.appendChild(tip);
+  }, 600);
+}
+
+function dismissFirstTip() {
+  const tip = document.getElementById("first-tip");
+  if (tip) { tip.style.opacity = "0"; setTimeout(() => tip.remove(), 300); }
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -795,10 +950,12 @@ function init() {
   const firstRun = isFirstRun();
   loadAll();
   if (firstRun) {
-    renderOnboarding();
+    renderOnboarding(1);
   } else {
     saveAll(); // persist any migrations
     showTab("log");
+    // Check if a weekly auto-backup is due
+    autoBackupIfDue();
   }
 }
 

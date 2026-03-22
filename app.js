@@ -1,8 +1,10 @@
 // ─── Version & Constants ──────────────────────────────────────────────────────
 
-const APP_VERSION = "4.1";
-const STORE_KEY   = "daymarkV4";
-const META_KEY    = "daymarkMetaV4";
+const APP_VERSION = "4.2";
+const STORE_KEY        = "daymarkV4";
+const META_KEY         = "daymarkMetaV4";
+const AUTO_BACKUP_KEY  = "daymarkAutoBackup"; // stores timestamp of last auto-backup
+const AUTO_BACKUP_DAYS = 7;                   // auto-backup every 7 days
 const MONTHS      = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const CATEGORY_COLORS = ["#007AFF","#34C759","#FF9500","#FF3B30","#AF52DE","#FF2D55","#5AC8FA","#FFCC00","#FF6B35","#30B0C7"];
@@ -51,7 +53,7 @@ function uid()    { return Math.random().toString(36).slice(2,10); }
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function escapeHtml(t) { return String(t).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(()=>fn(...a),ms); }; }
-function formatTimestamp() { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function formatTimestamp() { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+"-"+String(d.getHours()).padStart(2,"0")+"-"+String(d.getMinutes()).padStart(2,"0"); }
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -482,6 +484,49 @@ function exportJSON() {
   const uri = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload));
   const a = document.createElement("a");
   a.href = uri; a.download = `daymark-backup-${formatTimestamp()}.json`; a.click();
+  // Reset auto-backup timer so we don't double-export shortly after
+  resetAutoBackupTimer();
+}
+
+// ─── Auto Backup ──────────────────────────────────────────────────────────────
+
+function autoBackupIfDue() {
+  // Don't run if there's no real data yet
+  if (!allMonthKeys().length) return;
+
+  const lastBackup = localStorage.getItem(AUTO_BACKUP_KEY);
+  const now        = Date.now();
+  const dayMs      = 86400000;
+
+  if (lastBackup && (now - parseInt(lastBackup)) < AUTO_BACKUP_DAYS * dayMs) return;
+
+  // Due — trigger silent download
+  silentExportJSON();
+  localStorage.setItem(AUTO_BACKUP_KEY, String(now));
+  showToast("📦 Weekly backup saved to your Downloads folder", null);
+}
+
+function silentExportJSON() {
+  const payload = { version: APP_VERSION, store, meta };
+  const uri = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload));
+  const a = document.createElement("a");
+  a.href = uri;
+  a.download = `daymark-backup-${formatTimestamp()}.json`;
+  // Small delay so it doesn't fight with page load
+  setTimeout(() => a.click(), 1500);
+}
+
+function resetAutoBackupTimer() {
+  localStorage.setItem(AUTO_BACKUP_KEY, String(Date.now()));
+}
+
+function autoBackupStatus() {
+  const last = localStorage.getItem(AUTO_BACKUP_KEY);
+  if (!last) return "No automatic backup yet";
+  const days = Math.floor((Date.now() - parseInt(last)) / 86400000);
+  if (days === 0) return "Last auto-backup: today";
+  if (days === 1) return "Last auto-backup: yesterday";
+  return `Last auto-backup: ${days} days ago`;
 }
 
 function exportCSV() {
