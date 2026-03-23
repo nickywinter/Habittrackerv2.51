@@ -942,16 +942,9 @@ function openEditHabitDialog(id) {
   ].map(([v,l])=>`<option value="${v}" ${v===f.type?"selected":""}>${l}</option>`).join("");
 
   const isSpecific = f.type === "specificdays";
-
-  // Helper — save name/category changes then open day picker
-  function saveAndPickDays() {
-    const name = document.getElementById("ed-name")?.value?.trim();
-    if (!name) { showToast("Name can't be empty", null); return; }
-    renameHabit(id, name);
-    updateHabitCategory(id, document.getElementById("ed-cat").value);
-    const existingDays = isSpecific ? (f.days||[]) : [];
-    openDayPickerDialog(id, name, null, existingDays);
-  }
+  // Store existing days in a global temp so the inline onclick can access them
+  window._editHabitDays = isSpecific ? (f.days||[]) : [];
+  window._editHabitId   = id;
 
   const buttons = [
     { label: "Save", action: () => {
@@ -981,7 +974,7 @@ function openEditHabitDialog(id) {
     <select id="ed-freq">${freqOpts}</select>
     ${isSpecific ? `
       <div class="muted" style="margin-top:6px;font-size:12px;margin-bottom:8px">Current days: ${freqLabel(f)}</div>
-      <button class="btn secondary" type="button" onclick="saveAndPickDays()" style="margin-top:0">Change days →</button>
+      <button class="btn secondary" type="button" onclick="openDayPickerDialog(window._editHabitId,null,null,window._editHabitDays)" style="margin-top:0">Change days →</button>
     ` : ""}
   `, buttons);
 }
