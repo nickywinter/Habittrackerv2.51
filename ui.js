@@ -942,6 +942,17 @@ function openEditHabitDialog(id) {
   ].map(([v,l])=>`<option value="${v}" ${v===f.type?"selected":""}>${l}</option>`).join("");
 
   const isSpecific = f.type === "specificdays";
+
+  // Helper — save name/category changes then open day picker
+  function saveAndPickDays() {
+    const name = document.getElementById("ed-name")?.value?.trim();
+    if (!name) { showToast("Name can't be empty", null); return; }
+    renameHabit(id, name);
+    updateHabitCategory(id, document.getElementById("ed-cat").value);
+    const existingDays = isSpecific ? (f.days||[]) : [];
+    openDayPickerDialog(id, name, null, existingDays);
+  }
+
   const buttons = [
     { label: "Save", action: () => {
       const name = document.getElementById("ed-name")?.value?.trim();
@@ -950,9 +961,9 @@ function openEditHabitDialog(id) {
       updateHabitCategory(id, document.getElementById("ed-cat").value);
       const ftype = document.getElementById("ed-freq").value;
       if (ftype === "specificdays") {
-        // Open day picker — use setTimeout so this dialog fully closes first
-        const existingDays = ftype === f.type ? (f.days||[]) : [];
-        setTimeout(() => openDayPickerDialog(id, name, null, existingDays), 50);
+        // Go straight to day picker
+        const existingDays = isSpecific ? (f.days||[]) : [];
+        openDayPickerDialog(id, name, null, existingDays);
         return;
       }
       updateHabitFrequency(id, { type: ftype });
@@ -968,7 +979,10 @@ function openEditHabitDialog(id) {
     <select id="ed-cat">${catOpts}</select>
     <label style="margin-top:8px;display:block">Frequency</label>
     <select id="ed-freq">${freqOpts}</select>
-    ${isSpecific ? `<div class="muted" style="margin-top:6px;font-size:12px">Current days: ${freqLabel(f)}</div>` : ""}
+    ${isSpecific ? `
+      <div class="muted" style="margin-top:6px;font-size:12px;margin-bottom:8px">Current days: ${freqLabel(f)}</div>
+      <button class="btn secondary" type="button" onclick="saveAndPickDays()" style="margin-top:0">Change days →</button>
+    ` : ""}
   `, buttons);
 }
 
