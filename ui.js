@@ -1,3 +1,4 @@
+// Daymark © 2026 Nick Winter. All rights reserved.
 // ─── Tab Routing ──────────────────────────────────────────────────────────────
 
 function showTab(tab) {
@@ -827,13 +828,22 @@ function renderHabitsSection() {
     <label style="margin-top:8px;display:block;font-size:13px;color:var(--muted)">Category</label>
     <select id="new-habit-cat">${meta.categories.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select>
     <label style="margin-top:8px;display:block;font-size:13px;color:var(--muted)">Frequency</label>
-    <select id="new-habit-freq">
+    <select id="new-habit-freq" onchange="toggleNewDayPicker(this.value)">
       <option value="daily">Daily</option>
       <option value="weekdays">Weekdays only</option>
       <option value="weekends">Weekends only</option>
       <option value="specificdays">Specific days</option>
     </select>
-    <button class="btn" onclick="submitAddHabit()">Add Habit</button>
+    <div id="new-day-picker" style="display:none;margin-top:10px">
+      <div class="day-picker">${[0,1,2,3,4,5,6].map(n=>`
+        <div class="day-picker-row" id="nhd-row-${n}" onclick="toggleNewDay(${n})">
+          <div class="day-tick" id="nhd-tick-${n}">✓</div>
+          <span>${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][n]}</span>
+          <input type="checkbox" id="nhd-cb-${n}" value="${n}" style="display:none">
+        </div>`).join("")}
+      </div>
+    </div>
+    <button class="btn" onclick="submitAddHabit()" style="margin-top:10px">Add Habit</button>
   </div>`;
   return html;
 }
@@ -934,36 +944,22 @@ function renderBackupSection() {
 
 function openEditHabitDialog(id) {
   const h = getHabit(id); if (!h) return;
-  const cat = getCategory(h.categoryId);
-  const f   = h.frequency || { type: "daily" };
+  const f = h.frequency || { type: "daily" };
   const catOpts = meta.categories.map(c=>`<option value="${c.id}" ${c.id===h.categoryId?"selected":""}>${escapeHtml(c.name)}</option>`).join("");
   const freqOpts = [
     ["daily","Daily"],["weekdays","Weekdays only"],["weekends","Weekends only"],["specificdays","Specific days"]
   ].map(([v,l])=>`<option value="${v}" ${v===f.type?"selected":""}>${l}</option>`).join("");
 
-  const isSpecific = f.type === "specificdays";
-  // Store existing days in a global temp so the inline onclick can access them
-  window._editHabitDays = isSpecific ? (f.days||[]) : [];
-  window._editHabitId   = id;
-
-  const buttons = [
-    { label: "Save", action: () => {
-      const name = document.getElementById("ed-name")?.value?.trim();
-      if (!name) { showToast("Name can't be empty", null); return; }
-      renameHabit(id, name);
-      updateHabitCategory(id, document.getElementById("ed-cat").value);
-      const ftype = document.getElementById("ed-freq").value;
-      if (ftype === "specificdays") {
-        // Go straight to day picker
-        const existingDays = isSpecific ? (f.days||[]) : [];
-        openDayPickerDialog(id, name, null, existingDays);
-        return;
-      }
-      updateHabitFrequency(id, { type: ftype });
-      renderSettings();
-    }},
-    { label: "Cancel", action: closeDialog }
-  ];
+  const existingDays = f.type === "specificdays" ? (f.days||[]) : [];
+  const dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const dayRows = [0,1,2,3,4,5,6].map(n => `
+    <div class="day-picker-row ${existingDays.includes(n)?"day-selected":""}"
+         id="ehd-row-${n}" onclick="toggleEditDay(${n})">
+      <div class="day-tick ${existingDays.includes(n)?"day-tick-on":""}" id="ehd-tick-${n}">✓</div>
+      <span>${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][n]}</span>
+      <input type="checkbox" id="ehd-cb-${n}" value="${n}"
+        ${existingDays.includes(n)?"checked":""} style="display:none">
+    </div>`).join("");
 
   showCustomDialog("Edit Habit", `
     <label>Name</label>
@@ -971,12 +967,43 @@ function openEditHabitDialog(id) {
     <label style="margin-top:8px;display:block">Category</label>
     <select id="ed-cat">${catOpts}</select>
     <label style="margin-top:8px;display:block">Frequency</label>
-    <select id="ed-freq">${freqOpts}</select>
-    ${isSpecific ? `
-      <div class="muted" style="margin-top:6px;font-size:12px;margin-bottom:8px">Current days: ${freqLabel(f)}</div>
-      <button class="btn secondary" type="button" onclick="openDayPickerDialog(window._editHabitId,null,null,window._editHabitDays)" style="margin-top:0">Change days →</button>
-    ` : ""}
-  `, buttons);
+    <select id="ed-freq" onchange="toggleEditDayPicker(this.value)">${freqOpts}</select>
+    <div id="ed-day-picker" style="margin-top:10px;display:${f.type==="specificdays"?"block":"none"}">
+      <div class="day-picker">${dayRows}</div>
+    </div>
+  `, [
+    { label: "Save", action: () => {
+      const name = document.getElementById("ed-name")?.value?.trim();
+      if (!name) { showToast("Name can't be empty", null); return; }
+      renameHabit(id, name);
+      updateHabitCategory(id, document.getElementById("ed-cat").value);
+      const ftype = document.getElementById("ed-freq").value;
+      if (ftype === "specificdays") {
+        const checked = [0,1,2,3,4,5,6].filter(n => document.getElementById("ehd-cb-"+n)?.checked);
+        if (!checked.length) { showToast("Select at least one day", null); return; }
+        updateHabitFrequency(id, { type: "specificdays", days: checked });
+      } else {
+        updateHabitFrequency(id, { type: ftype });
+      }
+      renderSettings();
+    }},
+    { label: "Cancel", action: closeDialog }
+  ]);
+}
+
+function toggleEditDayPicker(ftype) {
+  const picker = document.getElementById("ed-day-picker");
+  if (picker) picker.style.display = ftype === "specificdays" ? "block" : "none";
+}
+
+function toggleEditDay(n) {
+  const row  = document.getElementById("ehd-row-"+n);
+  const tick = document.getElementById("ehd-tick-"+n);
+  const cb   = document.getElementById("ehd-cb-"+n);
+  if (!row || !cb) return;
+  cb.checked = !cb.checked;
+  row.classList.toggle("day-selected", cb.checked);
+  tick.classList.toggle("day-tick-on", cb.checked);
 }
 
 function openArchiveDialog(id) {
@@ -1083,13 +1110,29 @@ function submitAddHabit() {
   const catId = document.getElementById("new-habit-cat")?.value || meta.categories[0]?.id;
   const ftype = document.getElementById("new-habit-freq")?.value || "daily";
   if (ftype === "specificdays") {
-    // Open day picker dialog — setTimeout so any existing state clears first
-    setTimeout(() => openDayPickerDialog(null, name, catId, []), 50);
-    return;
+    const checked = [0,1,2,3,4,5,6].filter(n => document.getElementById("nhd-cb-"+n)?.checked);
+    if (!checked.length) { showToast("Select at least one day", null); return; }
+    addHabit(name, catId, { type: "specificdays", days: checked });
+  } else {
+    addHabit(name, catId, { type: ftype });
   }
-  addHabit(name, catId, { type: ftype });
   renderSettings();
   showToast(`"${name}" added`, null);
+}
+
+function toggleNewDayPicker(ftype) {
+  const picker = document.getElementById("new-day-picker");
+  if (picker) picker.style.display = ftype === "specificdays" ? "block" : "none";
+}
+
+function toggleNewDay(n) {
+  const row  = document.getElementById("nhd-row-"+n);
+  const tick = document.getElementById("nhd-tick-"+n);
+  const cb   = document.getElementById("nhd-cb-"+n);
+  if (!row || !cb) return;
+  cb.checked = !cb.checked;
+  row.classList.toggle("day-selected", cb.checked);
+  tick.classList.toggle("day-tick-on", cb.checked);
 }
 
 function submitAddCategory() {
@@ -1098,62 +1141,6 @@ function submitAddCategory() {
   const color = document.getElementById("new-cat-color")?.value || CATEGORY_COLORS[0];
   addCategory(name, color);
   renderSettings();
-}
-
-// ─── Day Picker Dialog ───────────────────────────────────────────────────────
-
-function openDayPickerDialog(habitId, habitName, categoryId, selectedDays) {
-  selectedDays = selectedDays || [];
-  const days = [
-    {n:0,l:"Sunday"},{n:1,l:"Monday"},{n:2,l:"Tuesday"},
-    {n:3,l:"Wednesday"},{n:4,l:"Thursday"},{n:5,l:"Friday"},{n:6,l:"Saturday"}
-  ];
-  const checkboxes = days.map(d => `
-    <div class="day-picker-row ${selectedDays.includes(d.n)?"day-selected":""}"
-      id="dp-row-${d.n}"
-      onclick="toggleDayRow(${d.n})">
-      <div class="day-tick ${selectedDays.includes(d.n)?"day-tick-on":""}" id="dp-tick-${d.n}">✓</div>
-      <span>${d.l}</span>
-      <input type="checkbox" id="dp-${d.n}" value="${d.n}" ${selectedDays.includes(d.n)?"checked":""} style="display:none">
-    </div>`).join("");
-
-  showCustomDialog("Choose days", `
-    <div class="muted" style="margin-bottom:10px">Tap to select the days this habit appears.</div>
-    <div class="day-picker">${checkboxes}</div>
-  `, [
-    { label: "Save", action: () => {
-      const checked = [...document.querySelectorAll(".day-picker input:checked")]
-        .map(el => parseInt(el.value));
-      if (!checked.length) { showToast("Select at least one day", null); return; }
-      const freq = { type: "specificdays", days: checked };
-      if (habitId) {
-        // Editing existing habit
-        updateHabitFrequency(habitId, freq);
-        renderSettings();
-      } else {
-        // New habit — categoryId was passed in
-        addHabit(habitName, categoryId, freq);
-        renderSettings();
-        showToast(`"${habitName}" added`, null);
-      }
-    }},
-    { label: "Cancel", action: () => { closeDialog(); if (!habitId) renderSettings(); } }
-  ]);
-}
-
-function toggleDayRow(n) {
-  const row  = document.getElementById("dp-row-"+n);
-  const tick = document.getElementById("dp-tick-"+n);
-  const cb   = document.getElementById("dp-"+n);
-  if (!row || !cb) return;
-  cb.checked = !cb.checked;
-  if (cb.checked) {
-    row.classList.add("day-selected");
-    tick.classList.add("day-tick-on");
-  } else {
-    row.classList.remove("day-selected");
-    tick.classList.remove("day-tick-on");
-  }
 }
 
 // ─── Tracker dialogs ─────────────────────────────────────────────────────────

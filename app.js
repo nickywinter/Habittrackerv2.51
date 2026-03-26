@@ -1,3 +1,4 @@
+// Daymark © 2026 Nick Winter. All rights reserved.
 // ─── Version & Constants ──────────────────────────────────────────────────────
 
 const APP_VERSION = "4.7";

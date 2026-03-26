@@ -1,3 +1,4 @@
+// Daymark © 2026 Nick Winter. All rights reserved.
 const CACHE = "daymark-v4.7";
 const ASSETS = ["./", "./index.html", "./app.js", "./ui.js", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
