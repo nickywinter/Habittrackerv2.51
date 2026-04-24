@@ -710,7 +710,8 @@ function exportBooksCSV() {
   const a = document.createElement("a");
   a.href = uri; a.download = `daymark-books-${formatTimestamp()}.csv`; a.click();
 }
-  if (!file) return;
+
+function importJSON(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
