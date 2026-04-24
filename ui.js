@@ -371,6 +371,38 @@ function setLifeView(view) {
 // ── Moments view ──────────────────────────────────────────────────────────────
 
 function renderMomentsView() {
+  const q = (state.momentsSearch || "").toLowerCase().trim();
+
+  if (q) {
+    // Search mode — scan all months
+    let resultsHtml = "";
+    let count = 0;
+    allMonthKeys().sort().reverse().forEach(mk => {
+      const md = monthData(mk);
+      Object.keys(md.moments).sort((a,b)=>Number(b)-Number(a)).forEach(d => {
+        const text = String(md.moments[d]||"").trim();
+        if (!text || !text.toLowerCase().includes(q)) return;
+        count++;
+        resultsHtml += `<div class="moment-entry" onclick="state.momentsSearch='';jumpToDay('${mk}',${d})">
+          <div class="moment-date">${formatDate(getDateForDay(mk,Number(d)))}</div>
+          <div class="moment-text">${escapeHtml(text)}</div>
+          <div class="muted moment-tap">Tap to edit</div>
+        </div>`;
+      });
+    });
+    return `
+      <div class="card" style="padding-bottom:4px">
+        <input id="moments-search" type="search" placeholder="Search moments…"
+          value="${escapeHtml(state.momentsSearch||"")}"
+          oninput="state.momentsSearch=this.value;renderLife()"
+          style="margin-bottom:4px">
+      </div>
+      <div class="card">
+        ${count ? resultsHtml : '<div class="muted">No moments match your search.</div>'}
+      </div>`;
+  }
+
+  // Normal month view
   const key = state.lifeMonthKey;
   const md  = monthData(key);
   let entriesHtml = "";
@@ -387,6 +419,12 @@ function renderMomentsView() {
     </div>`;
   });
   return `
+    <div class="card" style="padding-bottom:4px">
+      <input id="moments-search" type="search" placeholder="Search moments…"
+        value=""
+        oninput="state.momentsSearch=this.value;renderLife()"
+        style="margin-bottom:4px">
+    </div>
     ${monthNavBar(key, "lifePrevMonth", "lifeNextMonth")}
     <div class="card">
       ${hasAny ? entriesHtml : '<div class="muted">No moments logged this month.</div>'}
@@ -458,6 +496,8 @@ function renderBooksView() {
       html += `<div class="book-row">
         <div class="book-info">
           <div class="book-title">${escapeHtml(b.title)}</div>
+          ${b.author ? `<div class="book-author">${escapeHtml(b.author)}</div>` : ""}
+          ${b.genre  ? `<div class="book-genre">${escapeHtml(b.genre)}</div>` : ""}
           <div class="book-meta">${started}${daysSince !== null ? ` · ${daysSince} days in` : ""}</div>
         </div>
         <div class="book-actions">
@@ -473,10 +513,14 @@ function renderBooksView() {
   if (finished.length) {
     html += `<div class="card"><h3>Finished ${year}</h3>`;
     [...finished].reverse().forEach(b => {
-      const days = bookDays(b);
+      const days   = bookDays(b);
+      const stars  = b.rating ? `<span class="book-rating">${"★".repeat(b.rating)}${"☆".repeat(5-b.rating)}</span>` : "";
       html += `<div class="book-row">
         <div class="book-info">
           <div class="book-title">${escapeHtml(b.title)}</div>
+          ${b.author ? `<div class="book-author">${escapeHtml(b.author)}</div>` : ""}
+          ${b.genre  ? `<div class="book-genre">${escapeHtml(b.genre)}</div>` : ""}
+          ${stars}
           <div class="book-meta">${b.startDate} → ${b.endDate}${days ? ` · ${days} days` : ""}${fastest&&b.id===fastest.id&&finished.length>1?" · ⚡ fastest":""}</div>
           ${b.notes ? `<div class="book-notes">${escapeHtml(b.notes)}</div>` : ""}
         </div>
@@ -487,15 +531,36 @@ function renderBooksView() {
   }
 
   // Older books
-  const older = books.filter(b => b.endDate && !b.endDate.startsWith(String(year)));
+  const older = books.filter(b => b.endDate && !b.endDate.startsWith(String(year)) && !b.abandoned);
   if (older.length) {
     html += `<div class="card"><h3>Previous years</h3>`;
     [...older].reverse().forEach(b => {
-      const days = bookDays(b);
+      const days  = bookDays(b);
+      const stars = b.rating ? `<span class="book-rating">${"★".repeat(b.rating)}${"☆".repeat(5-b.rating)}</span>` : "";
       html += `<div class="book-row">
         <div class="book-info">
           <div class="book-title">${escapeHtml(b.title)}</div>
+          ${b.author ? `<div class="book-author">${escapeHtml(b.author)}</div>` : ""}
+          ${b.genre  ? `<div class="book-genre">${escapeHtml(b.genre)}</div>` : ""}
+          ${stars}
           <div class="book-meta">${b.endDate?.slice(0,4)} · ${days ? days+" days" : ""}</div>
+        </div>
+        <button class="small-btn" onclick="openEditBookDialog('${b.id}')">Edit</button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Abandoned books
+  const abandoned = books.filter(b => b.abandoned);
+  if (abandoned.length) {
+    html += `<div class="card"><h3>Abandoned</h3>`;
+    abandoned.forEach(b => {
+      html += `<div class="book-row">
+        <div class="book-info">
+          <div class="book-title" style="opacity:0.6">${escapeHtml(b.title)}</div>
+          ${b.author ? `<div class="book-author">${escapeHtml(b.author)}</div>` : ""}
+          ${b.notes  ? `<div class="book-notes">${escapeHtml(b.notes)}</div>` : ""}
         </div>
         <button class="small-btn" onclick="openEditBookDialog('${b.id}')">Edit</button>
       </div>`;
@@ -512,6 +577,8 @@ function renderBooksView() {
   html += `<div class="card">
     <h3>Add a book</h3>
     <input id="new-book-title" type="text" placeholder="Title">
+    <input id="new-book-author" type="text" placeholder="Author (optional)" style="margin-top:8px">
+    <input id="new-book-genre" type="text" placeholder="Genre (optional)" style="margin-top:8px">
     <label style="margin-top:8px;display:block;font-size:13px;color:var(--muted)">Date started</label>
     <input id="new-book-start" type="date" value="${today}">
     <button class="btn" id="add-book-btn" style="margin-top:10px">Add Book</button>
@@ -527,10 +594,12 @@ function renderBooksView() {
 }
 
 function submitAddBook() {
-  const title = document.getElementById("new-book-title")?.value?.trim();
+  const title  = document.getElementById("new-book-title")?.value?.trim();
   if (!title) { showToast("Enter a book title", null); return; }
-  const start = document.getElementById("new-book-start")?.value || "";
-  addBook(title, start);
+  const author = document.getElementById("new-book-author")?.value?.trim() || "";
+  const genre  = document.getElementById("new-book-genre")?.value?.trim()  || "";
+  const start  = document.getElementById("new-book-start")?.value || "";
+  addBook(title, start, author, genre);
   renderLife();
   showToast(`"${title}" added`, null);
 }
@@ -538,18 +607,25 @@ function submitAddBook() {
 function openFinishBookDialog(id) {
   const b = meta.books.find(x=>x.id===id); if (!b) return;
   const today = new Date().toISOString().slice(0,10);
-  showCustomDialog("Finished!", `
+  const ratingHtml = [1,2,3,4,5].map(n =>
+    `<button id="fb-star-${n}" onclick="(function(){[1,2,3,4,5].forEach(i=>document.getElementById('fb-star-'+i).classList.toggle('star-active',i<=${n}));document.getElementById('fb-rating').value='${n}';})()" class="star-btn">★</button>`
+  ).join("");
+  showCustomDialog("Finished! 🎉", `
     <div style="font-weight:700;margin-bottom:8px">${escapeHtml(b.title)}</div>
     <label>Date finished</label>
     <input id="fb-end" type="date" value="${today}">
+    <label style="margin-top:8px;display:block">Rating</label>
+    <div style="display:flex;gap:4px;margin-top:4px">${ratingHtml}</div>
+    <input id="fb-rating" type="hidden" value="0">
     <label style="margin-top:8px;display:block">Notes (optional)</label>
-    <input id="fb-notes" type="text" placeholder="e.g. Loved it, 4/5">
+    <input id="fb-notes" type="text" placeholder="e.g. Loved it">
   `, [
     { label: "Mark finished", action: () => {
-      const end   = document.getElementById("fb-end")?.value || today;
-      const notes = document.getElementById("fb-notes")?.value?.trim() || "";
+      const end    = document.getElementById("fb-end")?.value || today;
+      const notes  = document.getElementById("fb-notes")?.value?.trim() || "";
+      const rating = parseInt(document.getElementById("fb-rating")?.value||"0", 10);
       finishBook(id, end);
-      if (notes) updateBook(id, { notes });
+      updateBook(id, { notes: notes||b.notes||"", rating: rating||b.rating||0 });
       renderLife();
       const days = bookDays({ startDate: b.startDate, endDate: end });
       showToast(`Finished in ${days||"?"} days 🎉`, null);
@@ -560,24 +636,42 @@ function openFinishBookDialog(id) {
 
 function openEditBookDialog(id) {
   const b = meta.books.find(x=>x.id===id); if (!b) return;
+  const ratingHtml = [1,2,3,4,5].map(n =>
+    `<button id="eb-star-${n}" onclick="(function(){[1,2,3,4,5].forEach(i=>document.getElementById('eb-star-'+i).classList.toggle('star-active',i<=${n}));document.getElementById('eb-rating').value='${n}';})()" class="star-btn ${(b.rating||0)>=n?'star-active':''}"">★</button>`
+  ).join("");
   showCustomDialog("Edit Book", `
     <label>Title</label>
     <input id="eb-title" type="text" value="${escapeHtml(b.title)}">
+    <label style="margin-top:8px;display:block">Author</label>
+    <input id="eb-author" type="text" value="${escapeHtml(b.author||"")}" placeholder="Author (optional)">
+    <label style="margin-top:8px;display:block">Genre</label>
+    <input id="eb-genre" type="text" value="${escapeHtml(b.genre||"")}" placeholder="e.g. Non-fiction, Sci-fi">
+    <label style="margin-top:8px;display:block">Rating</label>
+    <div style="display:flex;gap:4px;margin-top:4px">${ratingHtml}</div>
+    <input id="eb-rating" type="hidden" value="${b.rating||0}">
     <label style="margin-top:8px;display:block">Date started</label>
     <input id="eb-start" type="date" value="${b.startDate||""}">
     <label style="margin-top:8px;display:block">Date finished</label>
     <input id="eb-end" type="date" value="${b.endDate||""}">
     <label style="margin-top:8px;display:block">Notes</label>
-    <input id="eb-notes" type="text" value="${escapeHtml(b.notes||"")}" placeholder="e.g. Loved it, 4/5">
+    <input id="eb-notes" type="text" value="${escapeHtml(b.notes||"")}" placeholder="e.g. Loved it">
+    <label style="margin-top:10px;display:flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="eb-abandoned" ${b.abandoned?"checked":""}>
+      Mark as abandoned
+    </label>
   `, [
     { label: "Save", action: () => {
       const title = document.getElementById("eb-title")?.value?.trim();
       if (!title) { showToast("Title can't be empty", null); return; }
       updateBook(id, {
         title,
+        author:    document.getElementById("eb-author")?.value?.trim()  || "",
+        genre:     document.getElementById("eb-genre")?.value?.trim()   || "",
+        rating:    parseInt(document.getElementById("eb-rating")?.value||"0", 10),
         startDate: document.getElementById("eb-start")?.value || "",
         endDate:   document.getElementById("eb-end")?.value   || "",
-        notes:     document.getElementById("eb-notes")?.value?.trim() || ""
+        notes:     document.getElementById("eb-notes")?.value?.trim() || "",
+        abandoned: document.getElementById("eb-abandoned")?.checked || false
       });
       renderLife();
     }},
@@ -629,6 +723,9 @@ function renderStats() {
 
   // Per-month scores chart
   html += renderMonthlyScoresCard(year);
+
+  // Books per year chart
+  html += renderBooksPerYearCard();
 
   document.getElementById("content").innerHTML = html;
 }
@@ -713,6 +810,29 @@ function renderMonthlyScoresCard(year) {
 
 function statsPrevYear() { state.statsYear--; state.statsHabitId=null; renderStats(); }
 function statsNextYear() { if(state.statsYear<DEFAULT_LOG_DATE.getFullYear()) { state.statsYear++; state.statsHabitId=null; renderStats(); } }
+
+function renderBooksPerYearCard() {
+  const counts = booksPerYear();
+  const years  = Object.keys(counts).sort();
+  if (years.length < 2) return ""; // not interesting until 2+ years
+  const vh=120, vw=400, pad=20, barW=30, gap=8;
+  const total  = years.length;
+  const slotW  = (vw - pad*2) / total;
+  const maxVal = Math.max(...years.map(y => counts[y]));
+  let bars = "";
+  years.forEach((yr, i) => {
+    const val  = counts[yr];
+    const x    = pad + i*slotW + (slotW-barW)/2;
+    const barH = maxVal ? Math.max(4, (val/maxVal)*(vh-pad*2)) : 4;
+    const y    = vh - pad - barH;
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="#34c759" opacity="0.75"/>`;
+    bars += `<text x="${x+barW/2}" y="${vh-4}" text-anchor="middle" font-size="9" fill="var(--muted)">${yr}</text>`;
+    bars += `<text x="${x+barW/2}" y="${y-3}" text-anchor="middle" font-size="9" fill="var(--text)">${val}</text>`;
+  });
+  return `<div class="card"><h3>Books per Year</h3>
+    <svg viewBox="0 0 ${vw} ${vh}" style="width:100%;height:${vh}px">${bars}</svg>
+  </div>`;
+}
 
 // ─── SETTINGS TAB ─────────────────────────────────────────────────────────────
 
@@ -933,6 +1053,7 @@ function renderBackupSection() {
     </div>
     <button class="btn secondary" onclick="exportJSON()" style="margin-top:12px">Export JSON Backup now</button>
     <button class="btn secondary" onclick="exportCSV()" style="margin-top:8px">Export CSV</button>
+    <button class="btn secondary" onclick="exportBooksCSV()" style="margin-top:8px">Export Books CSV</button>
     <div class="muted" style="margin-top:8px;margin-bottom:8px">Import backup (replaces all data)</div>
     <input type="file" accept=".json" onchange="importJSON(this.files[0]);this.value=''">
     <button class="btn secondary" onclick="checkStorageUsage()" style="margin-top:12px">Check Storage Usage</button>

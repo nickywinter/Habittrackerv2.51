@@ -1,7 +1,7 @@
 // Daymark © 2026 Nick Winter. All rights reserved.
 // ─── Version & Constants ──────────────────────────────────────────────────────
 
-const APP_VERSION = "4.7";
+const APP_VERSION = "4.8";
 const STORE_KEY        = "daymarkV4";
 const META_KEY         = "daymarkMetaV4";
 const AUTO_BACKUP_KEY  = "daymarkAutoBackup"; // stores timestamp of last auto-backup
@@ -75,6 +75,7 @@ let state = {
   // Life tab
   lifeMonthKey:     CURRENT_MONTH_KEY,
   lifeView:         "moments", // "moments" | "reviews" | "books"
+  momentsSearch:    "",
   settingsView:     "habits",   // "habits" | "trackers" | "goals" | "data"
   // Stats tab
   statsYear:        DEFAULT_LOG_DATE.getFullYear(),
@@ -570,10 +571,13 @@ function setLoggingStyle(style) {
 
 function getBooks() { return meta.books || []; }
 
-function addBook(title, startDate) {
+function addBook(title, startDate, author, genre) {
   meta.books.push({
     id:        uid(),
     title,
+    author:    author || "",
+    genre:     genre  || "",
+    rating:    0,
     startDate, // "YYYY-MM-DD"
     endDate:   "",
     notes:     "",
@@ -616,6 +620,16 @@ function bookGoalProgress() {
   const finished = booksFinishedThisYear(year).length;
   const goal     = meta.goals.find(g => /book/i.test(g.text)); // show regardless of done status
   return { finished, goal };
+}
+
+function booksPerYear() {
+  const counts = {};
+  getBooks().forEach(b => {
+    if (!b.endDate || b.abandoned) return;
+    const yr = b.endDate.slice(0, 4);
+    counts[yr] = (counts[yr] || 0) + 1;
+  });
+  return counts;
 }
 
 // ─── Auto Backup ──────────────────────────────────────────────────────────────
@@ -681,7 +695,21 @@ function exportCSV() {
   a.href = uri; a.download = `daymark-export-${formatTimestamp()}.csv`; a.click();
 }
 
-function importJSON(file) {
+function exportBooksCSV() {
+  const books = getBooks();
+  if (!books.length) { showToast("No books to export", null); return; }
+  const rows = [["Title","Author","Genre","Rating","Status","Start Date","End Date","Days","Notes"]];
+  books.forEach(b => {
+    const status = b.abandoned ? "Abandoned" : b.endDate ? "Finished" : "Reading";
+    const days   = bookDays(b) || "";
+    const rating = b.rating ? "★".repeat(b.rating) : "";
+    rows.push([b.title, b.author||"", b.genre||"", rating, status, b.startDate||"", b.endDate||"", days, b.notes||""]);
+  });
+  const csv = rows.map(r=>r.map(c=>'"'+String(c).replaceAll('"','""')+'"').join(",")).join("\n");
+  const uri = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+  const a = document.createElement("a");
+  a.href = uri; a.download = `daymark-books-${formatTimestamp()}.csv`; a.click();
+}
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
